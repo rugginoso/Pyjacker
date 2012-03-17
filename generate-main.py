@@ -78,7 +78,7 @@ static unsigned long hijack_get_func_ptr(const char *name)
 
 	func_ret = PyObject_CallMethod(hijacker, "hook_ptr", "s", "write");
 	if (func_ret == NULL) {
-		printf("Error calling method hijacker.hook_ptr\\n");
+		fprintf(stderr, "Error calling method hijacker.hook_ptr\\n");
 		exit(-1);
 	}
 
@@ -93,12 +93,9 @@ ${fake_funcs}
 void __attribute__ ((constructor)) hijack_init(void)
 {
 	const char *hooks_module_name = NULL;
-
-	printf("Initializing hijacker... ");
-
 	hooks_module_name = getenv(HOOKS_MODULE_ENV);
 	if (hooks_module_name == NULL) {
-		printf("\\n"HOOKS_MODULE_ENV" not set.");
+		fprintf(stderr, HOOKS_MODULE_ENV" not set.\\n");
 		exit(-1);
 	}
 
@@ -113,24 +110,18 @@ void __attribute__ ((constructor)) hijack_init(void)
 
 	hijacker = PyObject_GetAttrString(hooks_module, "hijacker");
 	if (hijacker == NULL) {
-		printf("Error retriving hijacker\\n");
+		fprintf(stderr, "Error retriving hijacker\\n");
 		exit(-1);
 	}
 
 	${orig_pointers_inits}
-
-	printf("done.\\n");
 }
 
 void __attribute__ ((destructor)) hijack_finalize(void)
 {
-	printf("Finalizing hijacker... ");
-
 	Py_DECREF(hijacker);
 	Py_DECREF(hooks_module);
 	Py_Finalize();
-
-	printf("done.\\n");
 }
 """
 
