@@ -1,7 +1,0 @@
-# Prototype list format:
-# +/- enable disable
-# prototype
-# comma-separated includes
-#
-# example:
-# + struct dirent* readdir(DIR* dir) dirent.h

@@ -1,0 +1,61 @@
+#!/usr/bin/env python
+from optparse import OptionParser
+from subprocess import Popen
+import os.path
+import sys
+from pyjacker.generator import HijackerGenerator
+
+PYJACK_SOURCE = "/tmp/pyhijack.c"
+PYJACK_LIB = "/tmp/libpyjack.so"
+
+parser = OptionParser(usage="%prog [options] program arguments")
+parser.add_option("-s", "--hooks-script", dest="hookscript",
+				  default="hooks.py", metavar="FILE",
+                  help="use FILE as hookscript [default: %default]")
+parser.add_option("-p", "--prototypes-list", dest="prototypes_list",
+				  default="proto.list", metavar="FILE",
+                  help="read prototypes list from FILE [default: %default]")
+
+(options, args) = parser.parse_args()
+
+if len(args) < 1:
+	parser.print_usage()
+	sys.exit(-1)
+
+generator = HijackerGenerator()
+
+try:
+	with open(options.prototypes_list) as f:
+		for line in f.readlines():
+			if line[0] == '#': continue
+			generator.add_prototype(line)
+except IOError as e:
+	print "[-] Error reading hooks list: %s" % e
+	sys.exit(-1)
+print "[+] Read hooks list %s" % options.prototypes_list
+
+try:
+	with open(PYJACK_SOURCE, "w") as f:
+		f.write(generator.generate())
+except IOError as e:
+	print "[-] Error generating c source: %s" % e
+	sys.exit(-1)
+print "[+] Generated c source for hijacking library"
+
+gcc = Popen(['gcc', PYJACK_SOURCE, '-o', PYJACK_LIB, '-fPIC', '-Wall', '-O2', '-I', '/usr/include/python2.7', '-shared', '-l', 'c', '-l', 'dl', '-l', 'python2.7'])
+if gcc.wait() != 0:
+	print '[-] Error compiling library'
+	sys.exit(-1)
+print "[+] Compiled library in %s" % PYJACK_LIB
+
+print "[+] Launcing program"
+env = os.environ
+if sys.platform == 'linux2':
+	env['LD_PRELOAD'] = PYJACK_LIB
+elif sys.platform == 'darwin':
+	env['DYLD_INSERT_LIBRARIES'] = PYJACK_LIB
+	env['DYLD_FORCE_FLAT_NAMESPACE'] = "1"
+env['PYJACKER_HOOKS'] = os.path.splitext(os.path.basename(options.hookscript))[0]
+env['PYTHONPATH'] = os.path.dirname(os.path.abspath(options.hookscript))
+program = Popen(args, env=env)
+program.wait()

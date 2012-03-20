@@ -23,18 +23,6 @@
 # ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-from ctypes import *
-
-class Hijacker(object):
-	def __init__(self):
-		self.hooks = {}
-
-	def register_hook(self, name, func, ret_type, *args_types):
-		LIBRARY_HOOK_FUNC = CFUNCTYPE(ret_type, *args_types)
-		hook = LIBRARY_HOOK_FUNC(func)
-		self.hooks[name] = cast(hook, c_void_p).value
-
-	def hook_ptr(self, name):
-		return self.hooks.get(name, 0)
+from hijacker import Hijacker
 
 hijacker = Hijacker()

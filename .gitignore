@@ -1,4 +1,2 @@
-libpyjacker.so.*
-pyjacker.o
-pyjacker.c
-
+*.pyc
+build/

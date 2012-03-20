@@ -6,10 +6,6 @@ and create hooks in python language.
 Instructions
 * Add the library function you want to hijack into the hooks.list file
 
-* $ python generate-main.py
-
-* $ make
-
 * Create your hooks python module, for example:
 
 from ctypes import *
@@ -27,12 +23,7 @@ def write(fd, buf, count):
 
 hijacker.register_hook("write", write, c_int, c_int, c_void_p, c_int)
 
+* Launch your program using pyjacker-launcher:
 
-* Set the PYJACKER_HOOKS enviroment variable to the hooks python module name:
+$ pyjacker-launch -s path/to/hooks.py -p path/to/proto.list yourprogram arg1 arg2
 
-$ export PYJACKER_HOOKS=test_write
-
-
-* Launch your executable:
-
-$ PYTHONPATH=pathtohooksmodule LD_PRELOAD=libpyjacker.so.0.1 ./test

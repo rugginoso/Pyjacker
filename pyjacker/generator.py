@@ -26,11 +26,85 @@
 import re
 from string import Template, strip
 
-HOOKS_LIST = "hooks.list"
 
-MAIN_TPL = """
+class FunctionPrototype(object):
+	INCLUDE_TPL = """
+#include <${include}>
+"""
+
+	ORIG_POINTER_DECL_TPL = """
+static ${ret_type} (*orig_${func_name})(${args}) = NULL;
+"""
+
+	ORIG_POINTER_INIT_TPL = """
+orig_${func_name} = (${ret_type} (*)(${args_types}))dlsym(RTLD_NEXT, "${func_name}");
+"""
+
+	FAKE_FUNC_TPL = """
+${ret_type} ${func_name}(${args})
+{
+	${ret_type} (*func)(${args_types}) = 0;
+
+	func = (${ret_type} (*)(${args_types}))hijack_get_func_ptr("${func_name}");
+
+	if (func == 0)
+		func = orig_${func_name};
+
+	return func(${args_names});
+}
+"""
+
+	regexp = re.compile('^(.+)\s(\w+)[(](.+)[)]\s(.*)$')
+
+	@classmethod
+	def from_string(cls, string):
+		match = FunctionPrototype.regexp.match(string)
+		if match:
+			ret_type = match.group(1)
+			name = match.group(2)
+			includes = [strip(include) for include in match.group(4).split(',')]
+			args = []
+			for arg in [strip(arg) for arg in match.group(3).split(',')]:
+				type_and_name = arg.split(' ')
+				args.append([" ".join(type_and_name[:-1]), type_and_name[-1]])
+			return FunctionPrototype(name, ret_type, args, includes)
+		else:
+			return None
+
+	def __init__(self, name, ret_type, args, includes):
+		self.name = name
+		self.ret_type = ret_type
+		self.args = args
+
+		self.include_files = includes
+
+	def includes(self):
+		lines = []
+		for include in self.include_files:
+			lines.append(strip(Template(FunctionPrototype.INCLUDE_TPL).substitute(include=include))) 
+		return lines
+
+	def orig_pointer_decl(self):
+		return strip(Template(FunctionPrototype.ORIG_POINTER_DECL_TPL).substitute(ret_type=self.ret_type,
+			                                    				                  func_name=self.name,
+			                                                    				  args=', '.join(["%s %s" % tuple(lst) for lst in self.args])))
+
+	def orig_pointer_init(self):
+		return strip(Template(FunctionPrototype.ORIG_POINTER_INIT_TPL).substitute(ret_type=self.ret_type,
+			                                                    				  func_name=self.name,
+			                                                                      args_types=", ".join([lst[0] for lst in self.args])))
+
+	def fake_func(self):
+		return strip(Template(FunctionPrototype.FAKE_FUNC_TPL).substitute(ret_type=self.ret_type,
+			                                                              func_name=self.name,
+			                                                              args=', '.join(["%s %s" % tuple(lst) for lst in self.args]),
+			                                                              args_types=', '.join([lst[0] for lst in self.args]),
+														                  args_names=', '.join([lst[1] for lst in self.args])))	
+
+class HijackerGenerator(object):
+	MAIN_TPL = """
 /*
- * Copyright (c) <year>, <copyright holder>
+ * Copyright (c) 2012, Lorenzo Masini <rugginoso@develer.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -55,12 +129,12 @@ MAIN_TPL = """
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include <Python.h>
+
 #include <stdlib.h>
 #include <dlfcn.h>
 
-#include <Python.h>
-
-${hooks_includes}
+${includes}
 
 
 #define HOOKS_MODULE_ENV "PYJACKER_HOOKS"
@@ -69,7 +143,6 @@ static PyObject *hooks_module = NULL;
 static PyObject *hijacker = NULL;
 
 ${orig_pointers_decls}
-${func_aliases}
 
 static unsigned long hijack_get_func_ptr(const char *name)
 {
@@ -125,97 +198,32 @@ void __attribute__ ((destructor)) hijack_finalize(void)
 }
 """
 
-INCLUDE_TPL = """
-#include <${include}>
-"""
+	def __init__(self):
+		self.functions = []
 
-ORIG_POINTER_DECL_TPL = """
-static ${ret_type} (*orig_${func_name})(${args}) = NULL;
-"""
+	def add_prototype(self, string):
+		func = FunctionPrototype.from_string(strip(string))
+		if func:
+			self.functions.append(func)
 
-ORIG_POINTER_INIT_TPL = """
-orig_${func_name} = (${ret_type} (*)(${args_types}))dlsym(RTLD_NEXT, "${func_name}");
-"""
+	def generate(self):
+		known_includes = set()
+		includes = []
+		orig_pointers_decls = []
+		orig_pointers_inits = []
+		fake_funcs = []
 
-FUNC_ALIAS_TPL = """
-${ret_type} ${func_name}(${args}) __attribute__ ((weak, alias("fake_${func_name}")));
-"""
+		for function in self.functions:
+			for include in function.includes():
+				if not include: continue
+				if include in known_includes: continue
+				includes.append(include)
+				known_includes.add(include)
+			orig_pointers_decls.append(function.orig_pointer_decl())
+			orig_pointers_inits.append(function.orig_pointer_init())
+			fake_funcs.append(function.fake_func())
 
-FAKE_FUNC_TPL = """
-${ret_type} fake_${func_name}(${args})
-{
-	${ret_type} (*func)(${args_types}) = 0;
-
-	func = (${ret_type} (*)(${args_types}))hijack_get_func_ptr("${func_name}");
-
-	if (func == 0)
-		func = orig_${func_name};
-
-	return func(${args_names});
-}
-"""
-
-lines = []
-
-with open(HOOKS_LIST, "r") as f:
-	lines = f.readlines()
-
-regexp = re.compile("^\+\s(.+)\s(\w+)[(](.+)[)]\s(.*)$")
-
-functions = []
-for line in lines:
-	if line[0] == '#': continue
-	if line[0] == '+':
-		match = regexp.match(line)
-		if match:
-			function = {}
-			function['return-type'] = match.group(1)
-			function['function-name'] = match.group(2)
-			function['includes'] = [strip(include) for include in match.group(4).split(',')]
-			function['args'] = []
-			args = [strip(arg) for arg in match.group(3).split(',')]
-			for arg in args:
-				type_and_name = arg.split(' ')
-				function['args'].append([" ".join(type_and_name[:-1]), type_and_name[-1]])
-			functions.append(function)
-		else:
-			print 'Wrong line: "%s"' % line
-
-
-hooks_includes = []
-orig_pointers_decls = []
-orig_pointers_inits = []
-func_aliases = []
-fake_funcs = []
-
-for function in functions:
-	data = {}
-	data['func_name'] = function['function-name']
-	data['ret_type'] = function['return-type']
-	data['args'] = ", ".join(["%s %s" % tuple(lst) for lst in function['args']])
-	data['args_types'] = ", ".join([lst[0] for lst in function['args']])
-	data['args_names'] = ", ".join([lst[1] for lst in function['args']])
-
-	hooks_includes.extend(function['includes'])
-	orig_pointers_decls.append(Template(ORIG_POINTER_DECL_TPL).substitute(data))
-	orig_pointers_inits.append(Template(ORIG_POINTER_INIT_TPL).substitute(data))
-	func_aliases.append(Template(FUNC_ALIAS_TPL).substitute(data))
-	fake_funcs.append(Template(FAKE_FUNC_TPL).substitute(data))
-
-known_includes = set()
-includes = []
-
-for include in hooks_includes:
-	if not include: continue
-	if include in known_includes: continue
-	includes.append(Template(INCLUDE_TPL).substitute(include=include))
-	known_includes.add(include)
-
-main = Template(MAIN_TPL).substitute(hooks_includes='\n'.join(includes),
-	                                 orig_pointers_decls='\n'.join(orig_pointers_decls),
-	                                 orig_pointers_inits='\n'.join(orig_pointers_inits),
-	                                 func_aliases='\n'.join(func_aliases),
-	                                 fake_funcs='\n'.join(fake_funcs))
-
-with open('pyjacker.c', 'w') as f:
-	f.write(strip(main))
+		return strip(Template(HijackerGenerator.MAIN_TPL).substitute(includes='\n'.join(includes),
+			                                       					 orig_pointers_decls='\n'.join(orig_pointers_decls),
+			                                       					 orig_pointers_inits='\n'.join(orig_pointers_inits),
+			                                                         fake_funcs='\n'.join(fake_funcs)))

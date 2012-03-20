@@ -1,2 +1,3 @@
 * Support variadic functions
-* Decent build system
+* Move away templates from generator
+
