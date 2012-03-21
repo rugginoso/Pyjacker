@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # Copyright (c) 2012, Lorenzo Masini <rugginoso@develer.com>
 # All rights reserved.
 #
