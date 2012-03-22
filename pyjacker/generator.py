@@ -148,6 +148,11 @@ static unsigned long hijack_get_func_ptr(const char *name)
 	PyObject *func_ret = NULL;	
 	unsigned long func_addr = 0;
 
+	if (hijacker == NULL) {
+		fprintf(stderr, "FATAL: hijacker not initialized\\n");
+		exit(-1);
+	}
+
 	func_ret = PyObject_CallMethod(hijacker, "hook_ptr", "s", name);
 	if (func_ret == NULL) {
 		fprintf(stderr, "Error calling method hijacker.hook_ptr for %s\\n", name);
