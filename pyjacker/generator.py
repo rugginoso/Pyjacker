@@ -148,10 +148,11 @@ static unsigned long hijack_get_func_ptr(const char *name)
 	PyObject *func_ret = NULL;	
 	unsigned long func_addr = 0;
 
-	if (hijacker == NULL) {
-		fprintf(stderr, "FATAL: hijacker not initialized\\n");
-		exit(-1);
-	}
+	/*
+	 * Pre-initialization request, fallback to default implementation
+	 */
+	if (hijacker == NULL)
+		return 0;
 
 	func_ret = PyObject_CallMethod(hijacker, "hook_ptr", "s", name);
 	if (func_ret == NULL) {
@@ -169,6 +170,8 @@ ${fake_funcs}
 
 void __attribute__ ((constructor)) hijack_init(void)
 {
+	${orig_pointers_inits}
+
 	const char *hooks_module_name = NULL;
 	hooks_module_name = getenv(HOOKS_MODULE_ENV);
 	if (hooks_module_name == NULL) {
@@ -190,8 +193,6 @@ void __attribute__ ((constructor)) hijack_init(void)
 		fprintf(stderr, "Error retriving hijacker\\n");
 		exit(-1);
 	}
-
-	${orig_pointers_inits}
 }
 
 void __attribute__ ((destructor)) hijack_finalize(void)
