@@ -30,7 +30,7 @@ import sys
 from pyjacker.generator import HijackerGenerator
 
 PYJACK_SOURCE = "/tmp/pyhijack.c"
-PYJACK_LIB = "/tmp/libpyjack.so"
+PYJACK_LIB = "/tmp/libpyhijack.so"
 
 parser = OptionParser(usage="%prog [options] program arguments")
 parser.add_option("-s", "--hooks-script", dest="hookscript",
