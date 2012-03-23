@@ -66,7 +66,7 @@ except IOError as e:
 	sys.exit(-1)
 print "[+] Generated c source for hijacking library"
 
-compile_cmd = ['gcc', PYJACK_SOURCE, '-o', PYJACK_LIB, '-shared']
+compile_cmd = ['gcc', PYJACK_SOURCE, '-o', PYJACK_LIB, '-shared', '-fPIC', '-Wall', '-O2']
 try:
 	output = Popen(['python2.7-config', '--cflags', '--ldflags'], stdout=PIPE).communicate()[0]
 	compile_cmd.extend([arg.strip() for arg in output.replace('\n', ' ').split()])
@@ -75,7 +75,6 @@ except OSError as e:
 	sys.exit(-1)
 print "[+] Got compile flags"
 
-#gcc = Popen(['gcc', PYJACK_SOURCE, '-o', PYJACK_LIB, '-fPIC', '-Wall', '-O2', '-I', '/usr/include/python2.7', '-shared', '-l', 'c', '-l', 'dl', '-l', 'python2.7'])
 gcc = Popen(compile_cmd)
 if gcc.wait() != 0:
 	print '[-] Error compiling library'
