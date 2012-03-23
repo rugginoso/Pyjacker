@@ -54,34 +54,34 @@ try:
 			if line[0] == '#': continue
 			generator.add_prototype(line)
 except IOError as e:
-	print "[-] Error reading hooks list: %s" % e
+	print('[-] Error reading hooks list: %s' % e)
 	sys.exit(-1)
-print "[+] Read hooks list %s" % options.prototypes_list
+print('[+] Read hooks list %s' % options.prototypes_list)
 
 try:
 	with open(PYJACK_SOURCE, "w") as f:
 		f.write(generator.generate())
 except IOError as e:
-	print "[-] Error generating c source: %s" % e
+	print('[-] Error generating c source: %s' % e)
 	sys.exit(-1)
-print "[+] Generated c source for hijacking library"
+print('[+] Generated c source for hijacking library')
 
 compile_cmd = ['gcc', PYJACK_SOURCE, '-o', PYJACK_LIB, '-shared', '-fPIC', '-Wall', '-O2']
 try:
 	output = Popen(['python2.7-config', '--cflags', '--ldflags'], stdout=PIPE).communicate()[0]
-	compile_cmd.extend([arg.strip() for arg in output.replace('\n', ' ').split()])
+	compile_cmd.extend([arg.strip() for arg in output.replace(b'\n', b' ').split()])
 except OSError as e:
-	print "[-] Error getting compile flags: %s" % e
+	print('[-] Error getting compile flags: %s' % e)
 	sys.exit(-1)
-print "[+] Got compile flags"
+print('[+] Got compile flags')
 
 gcc = Popen(compile_cmd)
 if gcc.wait() != 0:
-	print '[-] Error compiling library'
+	print('[-] Error compiling library')
 	sys.exit(-1)
-print "[+] Compiled library in %s" % PYJACK_LIB
+print('[+] Compiled library in %s' % PYJACK_LIB)
 
-print "[+] Launcing program"
+print('[+] Launcing program')
 env = os.environ
 if sys.platform == 'linux2':
 	env['LD_PRELOAD'] = PYJACK_LIB

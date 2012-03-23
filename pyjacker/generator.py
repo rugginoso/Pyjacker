@@ -23,7 +23,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import re
-from string import Template, strip
+from string import Template
 
 
 class FunctionPrototype(object):
@@ -61,9 +61,9 @@ ${ret_type} ${func_name}(${args})
 		if match:
 			ret_type = match.group(1)
 			name = match.group(2)
-			includes = [strip(include) for include in match.group(4).split(',')]
+			includes = [include.strip() for include in match.group(4).split(',')]
 			args = []
-			for arg in [strip(arg) for arg in match.group(3).split(',')]:
+			for arg in [arg.strip() for arg in match.group(3).split(',')]:
 				type_and_name = arg.split(' ')
 				args.append([" ".join(type_and_name[:-1]), type_and_name[-1]])
 			return FunctionPrototype(name, ret_type, args, includes)
@@ -80,25 +80,25 @@ ${ret_type} ${func_name}(${args})
 	def includes(self):
 		lines = []
 		for include in self.include_files:
-			lines.append(strip(Template(FunctionPrototype.INCLUDE_TPL).substitute(include=include))) 
+			lines.append(Template(FunctionPrototype.INCLUDE_TPL).substitute(include=include).strip()) 
 		return lines
 
 	def orig_pointer_decl(self):
-		return strip(Template(FunctionPrototype.ORIG_POINTER_DECL_TPL).substitute(ret_type=self.ret_type,
-			                                    				                  func_name=self.name,
-			                                                    				  args=', '.join(["%s %s" % tuple(lst) for lst in self.args])))
+		return Template(FunctionPrototype.ORIG_POINTER_DECL_TPL).substitute(ret_type=self.ret_type,
+		                                                                    func_name=self.name,
+		                                                                    args=', '.join(["%s %s" % tuple(lst) for lst in self.args])).strip()
 
 	def orig_pointer_init(self):
-		return strip(Template(FunctionPrototype.ORIG_POINTER_INIT_TPL).substitute(ret_type=self.ret_type,
-			                                                    				  func_name=self.name,
-			                                                                      args_types=", ".join([lst[0] for lst in self.args])))
+		return Template(FunctionPrototype.ORIG_POINTER_INIT_TPL).substitute(ret_type=self.ret_type,
+		                                                                    func_name=self.name,
+		                                                                    args_types=", ".join([lst[0] for lst in self.args])).strip()
 
 	def fake_func(self):
-		return strip(Template(FunctionPrototype.FAKE_FUNC_TPL).substitute(ret_type=self.ret_type,
-			                                                              func_name=self.name,
-			                                                              args=', '.join(["%s %s" % tuple(lst) for lst in self.args]),
-			                                                              args_types=', '.join([lst[0] for lst in self.args]),
-														                  args_names=', '.join([lst[1] for lst in self.args])))	
+		return Template(FunctionPrototype.FAKE_FUNC_TPL).substitute(ret_type=self.ret_type,
+		                                                            func_name=self.name,
+		                                                            args=', '.join(["%s %s" % tuple(lst) for lst in self.args]),
+		                                                            args_types=', '.join([lst[0] for lst in self.args]),
+		                                                            args_names=', '.join([lst[1] for lst in self.args])).strip()
 
 class HijackerGenerator(object):
 	MAIN_TPL = """
@@ -207,7 +207,7 @@ void __attribute__ ((destructor)) hijack_finalize(void)
 		self.functions = []
 
 	def add_prototype(self, string):
-		func = FunctionPrototype.from_string(strip(string))
+		func = FunctionPrototype.from_string(string.strip())
 		if func:
 			self.functions.append(func)
 
@@ -228,7 +228,7 @@ void __attribute__ ((destructor)) hijack_finalize(void)
 			orig_pointers_inits.append(function.orig_pointer_init())
 			fake_funcs.append(function.fake_func())
 
-		return strip(Template(HijackerGenerator.MAIN_TPL).substitute(includes='\n'.join(includes),
+		return Template(HijackerGenerator.MAIN_TPL).substitute(includes='\n'.join(includes),
 			                                       					 orig_pointers_decls='\n'.join(orig_pointers_decls),
 			                                       					 orig_pointers_inits='\n'.join(orig_pointers_inits),
-			                                                         fake_funcs='\n'.join(fake_funcs)))
+			                                                         fake_funcs='\n'.join(fake_funcs)).strip()
