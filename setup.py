@@ -8,6 +8,5 @@ setup(
 	author='Lorenzo Masini',
 	author_email='rugginoso@develer.com',
 	url='http://github.com/rugginoso/Pyjacker',
-	scripts=['pyjacker-launch'],
-	packages=['pyjacker']
+	py_modules=['pyjacker']
 )

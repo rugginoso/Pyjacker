@@ -4,15 +4,14 @@ Pyjacker is a little framework to hijack library functions
 and create hooks in python language.
 
 Instructions
-* Add the library function you want to hijack into the hooks.list file
-
 * Create your hooks python module, for example:
 
 from ctypes import *
-import from pyjacker import hijacker
+import pyjacker
 
 libc = CDLL('libc.so.6')
 
+@pyjacker.hook('ssize_t write(int fd, const void* buf, size_t count)', ctypes_ret_type=c_long, ctypes_args=(c_int, c_void_p, c_ulong))
 def write(fd, buf, count):
 	print "hooking write"
 	print fd
@@ -21,9 +20,11 @@ def write(fd, buf, count):
 
 	return libc.write(fd, buf, count)
 
-hijacker.register_hook("write", write, c_int, c_int, c_void_p, c_int)
+if __name__ == "__main__":
+	import sys
+	pyjacker.launch(sys.argv[1:], __file__)
 
-* Launch your program using pyjacker-launcher:
+* Launch your hooks file with your program and its args:
 
-$ pyjacker-launch -s path/to/hooks.py -p path/to/proto.list yourprogram arg1 arg2
+$ python hooks.py program arg1 arg2 
 

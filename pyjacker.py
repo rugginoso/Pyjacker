@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # Copyright (c) 2012, Lorenzo Masini <rugginoso@develer.com>
 # All rights reserved.
 #
@@ -22,15 +23,11 @@
 # ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import re
+from ctypes import *
 from string import Template
-
+import re
 
 class FunctionPrototype(object):
-	INCLUDE_TPL = """
-#include <${include}>
-"""
-
 	ORIG_POINTER_DECL_TPL = """
 static ${ret_type} (*orig_${func_name})(${args}) = NULL;
 """
@@ -53,7 +50,7 @@ ${ret_type} ${func_name}(${args})
 }
 """
 
-	regexp = re.compile('^(.+)\s(\w+)[(](.+)[)]\s(.*)$')
+	regexp = re.compile('^(.+)\s(\w+)[(](.+)[)]$')
 
 	@classmethod
 	def from_string(cls, string):
@@ -61,27 +58,18 @@ ${ret_type} ${func_name}(${args})
 		if match:
 			ret_type = match.group(1)
 			name = match.group(2)
-			includes = [include.strip() for include in match.group(4).split(',')]
 			args = []
 			for arg in [arg.strip() for arg in match.group(3).split(',')]:
 				type_and_name = arg.split(' ')
 				args.append([" ".join(type_and_name[:-1]), type_and_name[-1]])
-			return FunctionPrototype(name, ret_type, args, includes)
+			return FunctionPrototype(name, ret_type, args)
 		else:
 			return None
 
-	def __init__(self, name, ret_type, args, includes):
+	def __init__(self, name, ret_type, args):
 		self.name = name
 		self.ret_type = ret_type
 		self.args = args
-
-		self.include_files = includes
-
-	def includes(self):
-		lines = []
-		for include in self.include_files:
-			lines.append(Template(FunctionPrototype.INCLUDE_TPL).substitute(include=include).strip()) 
-		return lines
 
 	def orig_pointer_decl(self):
 		return Template(FunctionPrototype.ORIG_POINTER_DECL_TPL).substitute(ret_type=self.ret_type,
@@ -133,35 +121,29 @@ class HijackerGenerator(object):
 #include <stdlib.h>
 #include <dlfcn.h>
 
-${includes}
-
-
 #define HOOKS_MODULE_ENV "PYJACKER_HOOKS"
 
 static PyObject *hooks_module = NULL;
-static PyObject *hijacker = NULL;
 
 ${orig_pointers_decls}
 
 static unsigned long hijack_get_func_ptr(const char *name)
 {
-	PyObject *func_ret = NULL;	
-	unsigned long func_addr = 0;
-
-	/*
-	 * Pre-initialization request, fallback to default implementation
-	 */
-	if (hijacker == NULL)
-		return 0;
-
-	func_ret = PyObject_CallMethod(hijacker, "hook_ptr", "s", name);
-	if (func_ret == NULL) {
-		fprintf(stderr, "Error calling method hijacker.hook_ptr for %s\\n", name);
+	PyObject *func = PyObject_GetAttrString(hooks_module, name);
+	if (func == NULL) {
+		PyErr_Print();
 		exit(-1);
 	}
 
-	func_addr = PyLong_AsLong(func_ret);
-	Py_DECREF(func_ret);
+	PyObject *py_func_ptr = PyObject_GetAttrString(func, "c_ptr");
+	if (py_func_ptr == NULL) {
+		PyErr_Print();
+		exit(-1);
+	}
+
+	unsigned long func_addr = PyLong_AsLong(py_func_ptr);
+	Py_DECREF(py_func_ptr);
+	Py_DECREF(func);
 
 	return func_addr;
 }
@@ -187,17 +169,10 @@ void __attribute__ ((constructor)) hijack_init(void)
 		PyErr_Print();
 		exit(-1);
 	}
-
-	hijacker = PyObject_GetAttrString(hooks_module, "hijacker");
-	if (hijacker == NULL) {
-		fprintf(stderr, "Error retriving hijacker\\n");
-		exit(-1);
-	}
 }
 
 void __attribute__ ((destructor)) hijack_finalize(void)
 {
-	Py_DECREF(hijacker);
 	Py_DECREF(hooks_module);
 	Py_Finalize();
 }
@@ -212,23 +187,74 @@ void __attribute__ ((destructor)) hijack_finalize(void)
 			self.functions.append(func)
 
 	def generate(self):
-		known_includes = set()
-		includes = []
 		orig_pointers_decls = []
 		orig_pointers_inits = []
 		fake_funcs = []
 
 		for function in self.functions:
-			for include in function.includes():
-				if not include: continue
-				if include in known_includes: continue
-				includes.append(include)
-				known_includes.add(include)
 			orig_pointers_decls.append(function.orig_pointer_decl())
 			orig_pointers_inits.append(function.orig_pointer_init())
 			fake_funcs.append(function.fake_func())
 
-		return Template(HijackerGenerator.MAIN_TPL).substitute(includes='\n'.join(includes),
-			                                       					 orig_pointers_decls='\n'.join(orig_pointers_decls),
-			                                       					 orig_pointers_inits='\n'.join(orig_pointers_inits),
-			                                                         fake_funcs='\n'.join(fake_funcs)).strip()
+		return Template(HijackerGenerator.MAIN_TPL).substitute(orig_pointers_decls='\n'.join(orig_pointers_decls),
+			                                       			   orig_pointers_inits='\n'.join(orig_pointers_inits),
+			                                                   fake_funcs='\n'.join(fake_funcs)).strip()
+
+generator = HijackerGenerator()
+
+class hook(object):
+	def __init__(self, c_prototype, ctypes_ret_type=None, ctypes_args=[]):
+		generator.add_prototype(c_prototype)
+		self.ctypes_ret_type = ctypes_ret_type
+		self.ctypes_args = ctypes_args
+
+	def __call__(self, f):
+		args_types = self.ctypes_args
+		LIBRARY_HOOK_FUNC = CFUNCTYPE(self.ctypes_ret_type, *args_types)
+		hook = LIBRARY_HOOK_FUNC(f)
+		f.c_ptr = cast(hook, c_void_p).value
+		return f
+
+def launch(command, hooks_file):
+	from subprocess import Popen, PIPE
+	import sys, os
+
+	PYJACKER_SOURCE = "hijacker.c"
+	PYJACKER_LIB = "libhijacker.so"
+
+	try:
+		with open("hijacker.c", "w") as f:
+			f.write(generator.generate())
+	except IOError as e:
+		print('[-] Error generating c source: %s' % e)
+		sys.exit(-1)
+	print('[+] Generated c source for hijacking library')
+	
+	compile_cmd = ['gcc', PYJACKER_SOURCE, '-o', PYJACKER_LIB, '-shared', '-fPIC', '-Wall', '-O2']
+	try:
+		output = Popen(['python-config', '--cflags', '--libs'], stdout=PIPE).communicate()[0]
+		compile_cmd.extend([arg.strip() for arg in output.replace('\n', ' ').split()])
+	except OSError as e:
+		print('[-] Error getting compile flags: %s' % e)
+		sys.exit(-1)
+	print('[+] Got compile flags')
+
+	gcc = Popen(compile_cmd)
+	if gcc.wait() != 0:
+		print('[-] Error compiling library')
+		sys.exit(-1)
+	print('[+] Compiled library in %s' % PYJACKER_LIB)
+
+	print('[+] Launcing program\n')
+	env = os.environ
+	env['LD_PRELOAD'] = os.path.abspath(PYJACKER_LIB)
+	env['PYJACKER_HOOKS'] = os.path.splitext(os.path.basename(hooks_file))[0]
+	env['PYTHONPATH'] = os.path.dirname(os.path.abspath(hooks_file))
+	ret = 0
+	try:
+		program = Popen(command, env=env)
+		ret = program.wait()
+	finally:
+		os.remove(PYJACKER_SOURCE)
+		os.remove(PYJACKER_LIB)
+	return ret
